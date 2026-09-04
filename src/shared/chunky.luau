@@ -98,19 +98,20 @@ local function serialize<T>(SchemaOrTable: chunkySchema | chunkyTable, data: {[s
     local b = buffer.create(SchemaOrTable.byteLength)
     local current_offset = 0
     for k,v in pairs(SchemaOrTable.data) do
-        if not data[k] then
+            --print("[chunky-internal-debug]: Serializing: ",k, "Type: ", v.type, "Value: ", data[k])
+        if data[k] == nil then
             error("[Chunky]: Failed to fill data field: '"..k.."'. Please input all fields.")
         end
         if not v.byteLength then
             error("[Chunky]: Failed to serialize data. (Invalid Schema)")
         end
         if v.type == "generic" then
-            (v :: chunkyPrimativeType):write_func(b, current_offset, data[k])
-            current_offset += v.byteLength
+            local extra = (v :: chunkyPrimativeType):write_func(b, current_offset, data[k])
+            current_offset += extra
         elseif v.type == "SchemaTable" then
             local source_copy = serialize((v::chunkyTable), data[k])
             buffer.copy(b, current_offset, source_copy)
-            current_offset += v.byteLength
+            current_offset += buffer.len(source_copy)
         end
     end
     return b
@@ -164,8 +165,6 @@ local types = {
     U16 = create_generic(16, false) :: chunkyPrimativeType,
     S32 = create_generic(32, true) :: chunkyPrimativeType,
     U32 = create_generic(32, false) :: chunkyPrimativeType,
-    S64 = create_generic(64, true) :: chunkyPrimativeType,
-    U64 = create_generic(64, false) :: chunkyPrimativeType,
     BOOL = {
         byteLength = 1,
         read_func = @native function(self:chunkyPrimativeType, b: buffer, offset: number): (boolean, number)
@@ -261,10 +260,10 @@ local types = {
         type = "generic"
     },
     String16 = {
-        byteLength = 2^16,
+        byteLength = 1024,
         read_func = @native function(self:chunkyPrimativeType, b: buffer, offset: number): (string, number)
             local length = buffer.readu16(b, offset)
-            local res = buffer.readstring(b, offset+1, length)
+            local res = buffer.readstring(b, offset+2, length)
             return res, res:len()+2
 
         end,
@@ -279,10 +278,10 @@ local types = {
         type = "generic"
     },
     String32 = {
-        byteLength = 2^32,
+        byteLength = 2^16,
         read_func = @native function(self:chunkyPrimativeType, b: buffer, offset: number): (string, number)
             local length = buffer.readu32(b, offset)
-            local res = buffer.readstring(b, offset+1, length)
+            local res = buffer.readstring(b, offset+4, length)
             return res, res:len()+4
 
         end,
@@ -292,7 +291,7 @@ local types = {
             end
             buffer.writeu32(b, offset, value:len())
             buffer.writestring(b, offset+4, value)
-            return value:len()+1
+            return value:len()+4
         end,
         type = "generic"
     },
@@ -317,7 +316,7 @@ local types = {
     buffer16 = {
         byteLength = 2^16,
         read_func = @native function(self:chunkyPrimativeType, b: buffer, offset: number): (buffer, number)
-            local length = buffer.readu8(b, offset)
+            local length = buffer.readu16(b, offset)
             local buf = buffer.create(length)
             buffer.copy(buf, 0, b, offset+2,length)
             return buf, buffer.len(buf)+2
@@ -326,7 +325,7 @@ local types = {
             if buffer.len(value) > self.byteLength-2 then
                 error("Provided buffer exceeds assigned type limit (8 bit buffer too small, use a bigger one)")
             end
-            buffer.writeu8(b, offset, buffer.len(value))
+            buffer.writeu16(b, offset, buffer.len(value))
             buffer.copy(b, offset+2, value)
             return buffer.len(value)+2
         end,
