@@ -4,7 +4,8 @@ export type chunkyPrimativeType = {
     upperLimit: number?,
     lowerLimit: number?,
     byteLength: number,
-    signed: boolean,
+    signed: boolean?,
+    float: boolean?,
     read_func: <T>(self:chunkyPrimativeType,b: buffer, offset: number) -> (T, number),
     write_func: <T>(self:chunkyPrimativeType, b: buffer, offset: number, value: T) -> number,
     type: "SchemaTable" | "generic"
@@ -30,14 +31,14 @@ local reservedNames = {
 
 @native
 local function write_func_generic<T>(self: chunkyPrimativeType, buf: buffer, offset: number, value: T): number
-    local func_name = (self.signed and "writei" or "writeu")..(8*self.byteLength)
+    local func_name = (self.float and "writef" or (self.signed and "writei" or "writeu"))..(8*self.byteLength)
     ;(buffer :: {[string]: (b:buffer, offset: number, value: T) -> ()})[func_name](buf, offset, value)
     return self.byteLength
 end
 
 @native
 local function read_func_generic<T>(self: chunkyPrimativeType, buf: buffer, offset: number) : (T, number)
-    local func_name = (self.signed and "readi" or "readu")..(8*self.byteLength)
+    local func_name = (self.float and "readf" or (self.signed and "readi" or "readu"))..(8*self.byteLength)
     ;return (buffer :: {[string]: (b:buffer, offset: number) -> T})[func_name](buf, offset), self.byteLength
 end
 
@@ -145,12 +146,13 @@ function chunkyModule.deserialize<T>(Schema: chunkySchema, buf: buffer): {[strin
 end
 
 @native
-local function create_generic(bitSize: number, signed: boolean): chunkyPrimativeType
+local function create_generic(bitSize: number, signed: boolean?, float: boolean?): chunkyPrimativeType
     local item = {
         upperLimit = (signed and (2 ^ (bitSize-1) -1) or (2 ^ bitSize - 1)),
         lowerLimit = (signed and (2 ^ (bitSize-1)) or 0),
         byteLength = bitSize/8,
         signed = signed,
+        float = float,
         type = "generic"
     } :: chunkyPrimativeType
     item.write_func = write_func_generic
@@ -165,6 +167,7 @@ local types = {
     U16 = create_generic(16, false) :: chunkyPrimativeType,
     S32 = create_generic(32, true) :: chunkyPrimativeType,
     U32 = create_generic(32, false) :: chunkyPrimativeType,
+    F32 = create_generic(32, false, true) :: chunkyPrimativeType,
     BOOL = {
         byteLength = 1,
         read_func = @native function(self:chunkyPrimativeType, b: buffer, offset: number): (boolean, number)
